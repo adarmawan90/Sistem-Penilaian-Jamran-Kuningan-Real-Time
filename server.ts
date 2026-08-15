@@ -35,10 +35,16 @@ app.use((req, res, next) => {
   next();
 });
 
-// File persistence path (supports both local/container and Vercel serverless /tmp)
-const DATA_FILE = process.env.VERCEL
-  ? path.join(os.tmpdir(), 'data_storage.json')
-  : path.join(process.cwd(), 'data_storage.json');
+// Check if running in serverless environment
+const isServerless = Boolean(
+  process.env.VERCEL ||
+  process.env.AWS_LAMBDA_FUNCTION_NAME ||
+  process.env.LAMBDA_TASK_ROOT ||
+  process.env.NOW_REGION
+);
+
+// File persistence path (defaults safely to os.tmpdir() to prevent EROFS on read-only environments)
+const DATA_FILE = path.join(os.tmpdir(), 'pramuka_data_storage.json');
 
 // Memory Database
 let schoolsData: School[] = [...INITIAL_SCHOOLS];
@@ -51,14 +57,14 @@ let settingsData: AppSettings = { ...INITIAL_SETTINGS };
 // Load persistent data if exists
 function loadStorage() {
   try {
-    const targetFile = fs.existsSync(DATA_FILE)
-      ? DATA_FILE
-      : fs.existsSync(path.join(process.cwd(), 'data_storage.json'))
-      ? path.join(process.cwd(), 'data_storage.json')
-      : null;
+    let raw: string | null = null;
+    if (fs.existsSync(DATA_FILE)) {
+      raw = fs.readFileSync(DATA_FILE, 'utf-8');
+    } else if (fs.existsSync(path.join(process.cwd(), 'data_storage.json'))) {
+      raw = fs.readFileSync(path.join(process.cwd(), 'data_storage.json'), 'utf-8');
+    }
 
-    if (targetFile) {
-      const raw = fs.readFileSync(targetFile, 'utf-8');
+    if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed.schools && parsed.schools.length > 0) schoolsData = parsed.schools;
       if (parsed.competitions && parsed.competitions.length > 0) competitionsData = parsed.competitions;
@@ -68,7 +74,6 @@ function loadStorage() {
       if (parsed.settings) settingsData = parsed.settings;
       console.log('Loaded data storage successfully.');
     } else {
-      // Seed initial sample scores for preview demo
       seedSampleScores();
       saveStorage();
     }
@@ -87,12 +92,11 @@ function saveStorage() {
       logs: logsData,
       settings: settingsData,
     };
+    const jsonStr = JSON.stringify(payload, null, 2);
     try {
-      fs.writeFileSync(DATA_FILE, JSON.stringify(payload, null, 2), 'utf-8');
+      fs.writeFileSync(DATA_FILE, jsonStr, 'utf-8');
     } catch (writeErr) {
-      // Fallback for read-only environments
-      const tmpFile = path.join(os.tmpdir(), 'data_storage.json');
-      fs.writeFileSync(tmpFile, JSON.stringify(payload, null, 2), 'utf-8');
+      // Memory fallback if filesystem write is not permitted
     }
   } catch (err) {
     console.error('Failed to save data storage:', err);

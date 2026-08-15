@@ -105,11 +105,14 @@ export default function App() {
   const [scores, setScores] = useState<ScoreRecord[]>(() => {
     try {
       const backup = localStorage.getItem('pramuka_scores_backup');
-      if (backup) return JSON.parse(backup);
+      if (backup) {
+        const parsed = JSON.parse(backup);
+        if (Array.isArray(parsed)) return parsed;
+      }
       const cached = localStorage.getItem('pramuka_initial_cache');
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (parsed.scores) return parsed.scores;
+        if (Array.isArray(parsed.scores)) return parsed.scores;
       }
     } catch {}
     return [];

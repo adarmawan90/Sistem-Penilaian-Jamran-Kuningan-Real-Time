@@ -38,14 +38,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
   const handleCustomLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!usernameInput) return;
+    if (!usernameInput.trim()) return;
 
     setIsLoading(true);
     setErrorMsg('');
     try {
-      // 1. Try server login first
       const res = await ApiService.login(usernameInput, passwordInput, judges);
-      if (res.user) {
+      if (res && res.user) {
         const categoryFromUser: TeamCategory =
           res.user.assignedCategory === 'PUTRI' ? 'PUTRI' : 'PUTRA';
         
@@ -55,26 +54,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         );
       }
     } catch (err: any) {
-      // 2. Client-side instant fallback verification if backend / Vercel is unreachable or cold-starting
-      const cleanUser = usernameInput.trim().toLowerCase();
-      const localJudge = (judges || []).find(
-        (j) => j && j.username && j.username.toLowerCase() === cleanUser && j.isActive
-      );
-
-      if (localJudge) {
-        const expected = localJudge.password || localJudge.passwordHash || (localJudge.role === 'ADMIN' ? 'admin123' : 'juri123');
-        if (passwordInput.trim() === expected.trim() || !passwordInput) {
-          const categoryFromUser: TeamCategory =
-            localJudge.assignedCategory === 'PUTRI' ? 'PUTRI' : 'PUTRA';
-          onLoginSuccess(
-            localJudge,
-            localJudge.role === 'ADMIN' ? undefined : categoryFromUser
-          );
-          return;
-        }
+      let msg = err.message || 'Login gagal. Periksa username dan password Anda.';
+      if (typeof msg === 'string' && (msg.includes('Unexpected token') || msg.includes('valid JSON') || msg.includes('server error'))) {
+        msg = 'Koneksi server offline. Silakan coba masuk dengan akun default (admin / admin123).';
       }
-
-      setErrorMsg(err.message || 'Login gagal. Periksa username dan password Anda.');
+      setErrorMsg(msg);
     } finally {
       setIsLoading(false);
     }

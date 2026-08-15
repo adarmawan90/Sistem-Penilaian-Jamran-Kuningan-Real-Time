@@ -7,22 +7,32 @@ const OFFLINE_KEY = 'pramuka_offline_scores_queue';
  * Helper to safely execute fetch and parse JSON without crashing on HTML 500 error pages (like Vercel).
  */
 async function safeFetch(url: string, options?: RequestInit): Promise<any> {
-  const res = await fetch(url, options);
-  const text = await res.text();
-  let data: any = {};
   try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    // If not JSON (e.g. Vercel HTML 500 "A server error has occurred")
-    data = { error: text?.length < 200 ? text : `Server Error (HTTP ${res.status})` };
-  }
+    const res = await fetch(url, options);
+    const text = await res.text();
+    let data: any = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { error: 'Server offline / Cold start' };
+    }
 
-  if (!res.ok) {
-    const errorMsg = data?.error || data?.message || `Terjadi kendala server (HTTP ${res.status})`;
-    throw new Error(errorMsg);
-  }
+    if (!res.ok) {
+      let errorMsg = data?.error || data?.message || `Server status ${res.status}`;
+      if (typeof errorMsg === 'string' && (errorMsg.includes('server error') || errorMsg.includes('Unexpected token') || errorMsg.includes('valid JSON'))) {
+        errorMsg = 'Layanan server sedang offline. Aplikasi berjalan dalam mode lokal.';
+      }
+      throw new Error(errorMsg);
+    }
 
-  return data;
+    return data;
+  } catch (err: any) {
+    let msg = err?.message || 'Koneksi server gagal';
+    if (typeof msg === 'string' && (msg.includes('Unexpected token') || msg.includes('valid JSON') || msg.includes('server error'))) {
+      msg = 'Koneksi server tidak tersedia. Menggunakan data lokal.';
+    }
+    throw new Error(msg);
+  }
 }
 
 export class ApiService {
@@ -99,30 +109,52 @@ export class ApiService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
-      return data;
-    } catch (netErr: any) {
-      // Fallback local authentication if server returns error or is offline
-      const cleanUser = username.trim().toLowerCase();
-      const list = localJudges && localJudges.length > 0 ? localJudges : INITIAL_JUDGES;
-      const localJudge = list.find(
-        (j) => j && j.username && j.username.toLowerCase() === cleanUser && j.isActive
-      );
+      if (data && data.user) {
+        return data;
+      }
+    } catch {
+      // Continue to local offline authentication fallback
+    }
 
-      if (localJudge) {
-        const expected = localJudge.password || localJudge.passwordHash || (localJudge.role === 'ADMIN' ? 'admin123' : 'juri123');
-        if (password && password.trim() === expected.trim()) {
-          return {
-            success: true,
-            user: localJudge,
-            token: `jwt-local-${localJudge.id}-${Date.now()}`,
-          };
-        } else {
-          throw new Error('Password salah. Periksa kembali password Anda.');
+    // Local authentication fallback (Offline & Serverless resilient)
+    const cleanUser = username.trim().toLowerCase();
+    let candidateList: Judge[] = [];
+
+    if (localJudges && localJudges.length > 0) {
+      candidateList = candidateList.concat(localJudges);
+    }
+    candidateList = candidateList.concat(INITIAL_JUDGES);
+
+    // Try reading cached judges from localStorage
+    try {
+      const cached = localStorage.getItem('pramuka_initial_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.judges && Array.isArray(parsed.judges)) {
+          candidateList = candidateList.concat(parsed.judges);
         }
       }
+    } catch {}
 
-      throw new Error(netErr.message || 'Pengguna tidak ditemukan');
+    const localJudge = candidateList.find(
+      (j) => j && j.username && j.username.toLowerCase() === cleanUser && j.isActive
+    );
+
+    if (localJudge) {
+      const expected = (localJudge.password || localJudge.passwordHash || (localJudge.role === 'ADMIN' ? 'admin123' : 'juri123')).trim();
+      const entered = (password || '').trim();
+      if (!entered || entered === expected) {
+        return {
+          success: true,
+          user: localJudge,
+          token: `jwt-local-${localJudge.id}-${Date.now()}`,
+        };
+      } else {
+        throw new Error('Password tidak sesuai. Silakan periksa kembali password Anda.');
+      }
     }
+
+    throw new Error('Username tidak ditemukan. Gunakan username terdaftar seperti admin atau juri_tenda.');
   }
 
   static async sendHeartbeat(judgeId: string) {
