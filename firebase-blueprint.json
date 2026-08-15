@@ -1,0 +1,81 @@
+{
+  "entities": {
+    "schools": {
+      "fields": {
+        "id": { "type": "number" },
+        "number": { "type": "number" },
+        "name": { "type": "string" },
+        "gudepPutra": { "type": "string" },
+        "gudepPutri": { "type": "string" },
+        "registrationCode": { "type": "string" }
+      }
+    },
+    "competitions": {
+      "fields": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "minScore": { "type": "number" },
+        "maxScore": { "type": "number" },
+        "weight": { "type": "number" },
+        "isExploration": { "type": "boolean" },
+        "subPosts": { "type": "array" },
+        "hasTime": { "type": "boolean" },
+        "timeUnit": { "type": "string" }
+      }
+    },
+    "judges": {
+      "fields": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "assignedCompetitionId": { "type": "string" },
+        "assignedSubPostId": { "type": "string" },
+        "assignedCategory": { "type": "string" },
+        "isOnline": { "type": "boolean" },
+        "lastActive": { "type": "string" }
+      }
+    },
+    "scores": {
+      "fields": {
+        "id": { "type": "string" },
+        "schoolId": { "type": "number" },
+        "teamCategory": { "type": "string" },
+        "competitionId": { "type": "string" },
+        "subPostId": { "type": "string" },
+        "score": { "type": "number" },
+        "timeInMs": { "type": "number" },
+        "timeFormatted": { "type": "string" },
+        "judgeId": { "type": "string" },
+        "judgeName": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "createdAt": { "type": "string" }
+      }
+    },
+    "settings": {
+      "fields": {
+        "eventTitle": { "type": "string" },
+        "defaultMinScore": { "type": "number" },
+        "defaultMaxScore": { "type": "number" },
+        "autoSyncIntervalSec": { "type": "number" },
+        "allowOffline": { "type": "boolean" },
+        "theme": { "type": "string" },
+        "publicShowRanking": { "type": "boolean" },
+        "publicShowMonitor": { "type": "boolean" }
+      }
+    },
+    "activity_logs": {
+      "fields": {
+        "id": { "type": "string" },
+        "judgeId": { "type": "string" },
+        "judgeName": { "type": "string" },
+        "action": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string" }
+      }
+    }
+  }
+}

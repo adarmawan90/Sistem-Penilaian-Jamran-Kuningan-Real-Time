@@ -1,0 +1,8 @@
+{
+  "name": "Remix Sistem Penilaian Jamran Kuningan Real-Time ",
+  "description": "Aplikasi PWA Penilaian Lomba Pramuka Real-Time untuk 55 Pangkalan, Penjelajahan, Juri, Rekap, Ranking, dan Monitoring Admin.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
