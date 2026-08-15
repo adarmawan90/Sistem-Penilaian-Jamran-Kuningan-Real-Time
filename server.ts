@@ -2,7 +2,6 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { createServer as createViteServer } from 'vite';
 import { INITIAL_SCHOOLS, INITIAL_COMPETITIONS, INITIAL_JUDGES, INITIAL_SETTINGS } from './src/data/seedData';
 import { School, Competition, Judge, ScoreRecord, ActivityLog, AppSettings } from './src/types';
 import { syncDataToGoogleSheets } from './src/server/googleSheetsService';

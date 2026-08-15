@@ -3,12 +3,32 @@ import { INITIAL_SCHOOLS, INITIAL_COMPETITIONS, INITIAL_JUDGES, INITIAL_SETTINGS
 
 const OFFLINE_KEY = 'pramuka_offline_scores_queue';
 
+/**
+ * Helper to safely execute fetch and parse JSON without crashing on HTML 500 error pages (like Vercel).
+ */
+async function safeFetch(url: string, options?: RequestInit): Promise<any> {
+  const res = await fetch(url, options);
+  const text = await res.text();
+  let data: any = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    // If not JSON (e.g. Vercel HTML 500 "A server error has occurred")
+    data = { error: text?.length < 200 ? text : `Server Error (HTTP ${res.status})` };
+  }
+
+  if (!res.ok) {
+    const errorMsg = data?.error || data?.message || `Terjadi kendala server (HTTP ${res.status})`;
+    throw new Error(errorMsg);
+  }
+
+  return data;
+}
+
 export class ApiService {
   static async getInitialData() {
     try {
-      const res = await fetch('/api/initial-data');
-      if (!res.ok) throw new Error(`Failed to fetch initial data: HTTP ${res.status}`);
-      const data = await res.json();
+      const data = await safeFetch('/api/initial-data');
 
       if (!Array.isArray(data.schools) || data.schools.length === 0) {
         data.schools = INITIAL_SCHOOLS;
@@ -55,14 +75,14 @@ export class ApiService {
         judges: INITIAL_JUDGES,
         scores: backupScores,
         settings: INITIAL_SETTINGS,
-        logs: []
+        logs: [],
       };
     }
   }
 
   static async syncMissingScoresToServer(missingScores: ScoreRecord[]) {
     try {
-      await fetch('/api/scores/batch', {
+      await safeFetch('/api/scores/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ batchScores: missingScores }),
@@ -74,27 +94,16 @@ export class ApiService {
 
   static async login(username: string, password?: string, localJudges?: Judge[]) {
     try {
-      const res = await fetch('/api/login', {
+      const data = await safeFetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
-      const text = await res.text();
-      let data: any = {};
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        data = {};
-      }
-      
-      if (!res.ok) {
-        throw new Error(data.error || 'Login gagal');
-      }
       return data;
     } catch (netErr: any) {
       // Fallback local authentication if server returns error or is offline
       const cleanUser = username.trim().toLowerCase();
-      const list = localJudges || INITIAL_JUDGES;
+      const list = localJudges && localJudges.length > 0 ? localJudges : INITIAL_JUDGES;
       const localJudge = list.find(
         (j) => j && j.username && j.username.toLowerCase() === cleanUser && j.isActive
       );
@@ -118,12 +127,11 @@ export class ApiService {
 
   static async sendHeartbeat(judgeId: string) {
     try {
-      const res = await fetch('/api/judges/heartbeat', {
+      return await safeFetch('/api/judges/heartbeat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ judgeId }),
       });
-      return await res.json();
     } catch {
       return null;
     }
@@ -153,16 +161,11 @@ export class ApiService {
     }
 
     try {
-      const res = await fetch('/api/scores', {
+      const data = await safeFetch('/api/scores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Gagal menyimpan nilai');
-      }
       return data;
     } catch (err: any) {
       // Network error occurred during fetch
@@ -170,7 +173,7 @@ export class ApiService {
       return {
         success: true,
         isOffline: true,
-        message: 'Koneksi lambat/terputus! Data tersimpan di penyimpanan lokal.',
+        message: 'Koneksi lambat/terputus! Data tersimpan aman di penyimpanan lokal.',
       };
     }
   }
@@ -201,12 +204,12 @@ export class ApiService {
     if (!navigator.onLine) return { syncedCount: 0 };
 
     try {
-      const res = await fetch('/api/scores/batch', {
+      const res = await safeFetch('/api/scores/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ batchScores: queue }),
       });
-      if (res.ok) {
+      if (res.success || res.synced) {
         localStorage.removeItem(OFFLINE_KEY);
         return { syncedCount: queue.length };
       }
@@ -217,10 +220,7 @@ export class ApiService {
   }
 
   static async deleteScore(scoreId: string) {
-    const res = await fetch(`/api/scores/${scoreId}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal menghapus nilai');
-    return data;
+    return await safeFetch(`/api/scores/${scoreId}`, { method: 'DELETE' });
   }
 
   static async saveCompetition(comp: Partial<Competition>) {
@@ -228,21 +228,15 @@ export class ApiService {
     const url = isEdit ? `/api/competitions/${comp.id}` : '/api/competitions';
     const method = isEdit ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
+    return await safeFetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(comp),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal menyimpan perlombaan');
-    return data;
   }
 
   static async deleteCompetition(id: string) {
-    const res = await fetch(`/api/competitions/${id}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal menghapus perlombaan');
-    return data;
+    return await safeFetch(`/api/competitions/${id}`, { method: 'DELETE' });
   }
 
   static async saveSchool(school: Partial<School>) {
@@ -250,21 +244,15 @@ export class ApiService {
     const url = isEdit ? `/api/schools/${school.id}` : '/api/schools';
     const method = isEdit ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
+    return await safeFetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(school),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal menyimpan pangkalan');
-    return data;
   }
 
   static async deleteSchool(id: number) {
-    const res = await fetch(`/api/schools/${id}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal menghapus pangkalan');
-    return data;
+    return await safeFetch(`/api/schools/${id}`, { method: 'DELETE' });
   }
 
   static async saveJudge(judge: Partial<Judge>) {
@@ -272,71 +260,51 @@ export class ApiService {
     const url = isEdit ? `/api/judges/${judge.id}` : '/api/judges';
     const method = isEdit ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
+    return await safeFetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(judge),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal menyimpan juri');
-    return data;
   }
 
   static async saveJudgesBatch(batchJudges: Partial<Judge>[]) {
-    const res = await fetch('/api/judges/batch', {
+    return await safeFetch('/api/judges/batch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ batchJudges }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal menyimpan batch juri');
-    return data;
   }
 
   static async deleteJudge(id: string) {
-    const res = await fetch(`/api/judges/${encodeURIComponent(id)}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal menghapus juri');
-    return data;
+    return await safeFetch(`/api/judges/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
   static async deleteAllNonAdminJudges() {
-    const res = await fetch('/api/judges-all-non-admin', { method: 'DELETE' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal menghapus seluruh juri');
-    return data;
+    return await safeFetch('/api/judges-all-non-admin', { method: 'DELETE' });
   }
 
   static async uploadBatchScores(batchScores: any[]) {
-    const res = await fetch('/api/scores/batch', {
+    return await safeFetch('/api/scores/batch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ batchScores }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal mengunggah batch nilai');
-    return data;
   }
 
   static async saveSettings(settings: Partial<AppSettings>) {
-    const res = await fetch('/api/settings', {
+    return await safeFetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal menyimpan pengaturan');
-    return data;
   }
 
   static async clearAllScores(password: string) {
-    const res = await fetch('/api/scores/clear-all', {
+    const data = await safeFetch('/api/scores/clear-all', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal menghapus semua nilai');
     localStorage.setItem('pramuka_scores_cleared_timestamp', Date.now().toString());
     localStorage.setItem('pramuka_scores_backup', JSON.stringify([]));
     localStorage.removeItem('pramuka_initial_cache');
@@ -345,62 +313,44 @@ export class ApiService {
   }
 
   static async restoreBackup(jsonData: any) {
-    const res = await fetch('/api/backup/restore', {
+    return await safeFetch('/api/backup/restore', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ data: jsonData }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal memulihkan backup');
-    return data;
   }
 
   static async getFirebaseStatus() {
     try {
-      const res = await fetch('/api/firebase/status');
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Gagal mengambil status Firebase');
-      return data;
+      return await safeFetch('/api/firebase/status');
     } catch (err: any) {
       return { configured: false, error: err.message };
     }
   }
 
   static async syncToFirebase() {
-    const res = await fetch('/api/firebase/sync', {
+    return await safeFetch('/api/firebase/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal menyinkronkan data ke Google Firebase');
-    return data;
   }
 
   static async pullFromFirebase() {
-    const res = await fetch('/api/firebase/pull', {
+    return await safeFetch('/api/firebase/pull', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal memuat data dari Google Firebase');
-    return data;
   }
 
   static async getGSheetsStatus() {
-    const res = await fetch('/api/gsheets/status');
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal mengambil status Google Sheets');
-    return data;
+    return await safeFetch('/api/gsheets/status');
   }
 
   static async syncGSheets() {
-    const res = await fetch('/api/gsheets/sync', {
+    return await safeFetch('/api/gsheets/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal sinkronisasi ke Google Sheets');
-    return data;
   }
 
   static subscribeToRealtime(onMessage: (event: string, payload: any) => void) {
