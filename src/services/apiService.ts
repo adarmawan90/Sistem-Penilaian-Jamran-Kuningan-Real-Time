@@ -169,6 +169,27 @@ export class ApiService {
     }
   }
 
+  static updateLocalScoresCache(record: ScoreRecord) {
+    try {
+      const raw = localStorage.getItem('pramuka_scores_backup');
+      let list: ScoreRecord[] = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(list)) list = [];
+      const idx = list.findIndex((s) => {
+        if (s.schoolId === record.schoolId && s.teamCategory === record.teamCategory && s.competitionId === record.competitionId) {
+          if (record.subPostId) return s.subPostId === record.subPostId;
+          return !s.subPostId;
+        }
+        return false;
+      });
+      if (idx >= 0) {
+        list[idx] = record;
+      } else {
+        list.push(record);
+      }
+      localStorage.setItem('pramuka_scores_backup', JSON.stringify(list));
+    } catch {}
+  }
+
   static async submitScore(payload: {
     schoolId: number;
     teamCategory: TeamCategory;
@@ -182,12 +203,29 @@ export class ApiService {
     judgeName: string;
     posName: string;
   }) {
-    // If offline, save to local queue
+    // If offline, save to local queue and local backup
     if (!navigator.onLine) {
+      const offlineRecord: ScoreRecord = {
+        id: `offline-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        schoolId: payload.schoolId,
+        teamCategory: payload.teamCategory,
+        competitionId: payload.competitionId,
+        subPostId: payload.subPostId,
+        score: payload.score,
+        timeInMs: payload.timeInMs,
+        timeFormatted: payload.timeFormatted,
+        notes: payload.notes || '',
+        judgeId: payload.judgeId,
+        judgeName: payload.judgeName,
+        posName: payload.posName,
+        timestamp: new Date().toISOString(),
+      };
+      this.updateLocalScoresCache(offlineRecord);
       this.saveOfflineQueue(payload);
       return {
         success: true,
         isOffline: true,
+        scoreRecord: offlineRecord,
         message: 'Koneksi terputus! Data disimpan lokal di HP dan akan disinkron otomatis saat internet kembali.',
       };
     }
@@ -198,13 +236,33 @@ export class ApiService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+      if (data && data.scoreRecord) {
+        this.updateLocalScoresCache(data.scoreRecord);
+      }
       return data;
     } catch (err: any) {
       // Network error occurred during fetch
+      const offlineRecord: ScoreRecord = {
+        id: `offline-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        schoolId: payload.schoolId,
+        teamCategory: payload.teamCategory,
+        competitionId: payload.competitionId,
+        subPostId: payload.subPostId,
+        score: payload.score,
+        timeInMs: payload.timeInMs,
+        timeFormatted: payload.timeFormatted,
+        notes: payload.notes || '',
+        judgeId: payload.judgeId,
+        judgeName: payload.judgeName,
+        posName: payload.posName,
+        timestamp: new Date().toISOString(),
+      };
+      this.updateLocalScoresCache(offlineRecord);
       this.saveOfflineQueue(payload);
       return {
         success: true,
         isOffline: true,
+        scoreRecord: offlineRecord,
         message: 'Koneksi lambat/terputus! Data tersimpan aman di penyimpanan lokal.',
       };
     }

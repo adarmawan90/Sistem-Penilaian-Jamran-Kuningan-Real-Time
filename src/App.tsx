@@ -430,6 +430,7 @@ export default function App() {
             onScoreSaved={() => {
               updateOfflineCount();
               setSelectedSchoolForJudgeInput(null);
+              loadInitialData();
             }}
           />
         )}

@@ -400,7 +400,23 @@ app.get('/api/realtime/stream', (req, res) => {
 });
 
 // Initial Data Fetch
-app.get('/api/initial-data', (req, res) => {
+app.get('/api/initial-data', async (req, res) => {
+  // Pull persistent cloud data from Firestore on each request if running on serverless
+  try {
+    const pulled = await fetchAllFromFirestore();
+    if (pulled) {
+      if (pulled.schools && pulled.schools.length > 0) schoolsData = pulled.schools;
+      if (pulled.competitions && pulled.competitions.length > 0) competitionsData = pulled.competitions;
+      if (pulled.judges && pulled.judges.length > 0) judgesData = pulled.judges;
+      if (pulled.scores) scoresData = pulled.scores;
+      if (pulled.logs) logsData = pulled.logs;
+      if (pulled.settings) settingsData = pulled.settings;
+      saveStorage();
+    }
+  } catch (err) {
+    console.warn('[Initial Data Fetch] Firestore hydration note:', err);
+  }
+
   res.json({
     schools: schoolsData,
     competitions: competitionsData,
@@ -463,7 +479,7 @@ app.post('/api/judges/heartbeat', (req, res) => {
 });
 
 // Save or Update Score Endpoint
-app.post('/api/scores', (req, res) => {
+app.post('/api/scores', async (req, res) => {
   const { schoolId, teamCategory, competitionId, subPostId, score, timeInMs, timeFormatted, notes, judgeId, judgeName, posName, device, ip } = req.body;
 
   if (!schoolId || !teamCategory || !competitionId || score === undefined || score === null || score === '') {
@@ -547,8 +563,17 @@ app.post('/api/scores', (req, res) => {
   logsData.unshift(logItem);
 
   saveStorage();
-  saveScoreToFirestore(targetRecord);
-  saveLogToFirestore(logItem);
+
+  // Await Firestore and cloud sync to guarantee persistence on serverless before responding
+  try {
+    await Promise.allSettled([
+      saveScoreToFirestore(targetRecord),
+      saveLogToFirestore(logItem),
+    ]);
+  } catch (fsErr) {
+    console.warn('[Firestore] Error saving score:', fsErr);
+  }
+
   triggerBackgroundGSheetsSync();
 
   // Broadcast real-time event to all connected clients
@@ -566,7 +591,7 @@ app.post('/api/scores', (req, res) => {
 });
 
 // Batch Sync Route (For Offline Mode Auto-Sync)
-app.post('/api/scores/batch', (req, res) => {
+app.post('/api/scores/batch', async (req, res) => {
   const { batchScores } = req.body;
   if (!Array.isArray(batchScores)) {
     return res.status(400).json({ error: 'Array batchScores dibutuhkan' });
@@ -621,7 +646,11 @@ app.post('/api/scores/batch', (req, res) => {
   });
 
   saveStorage();
-  triggerBackgroundFirestoreSync();
+  try {
+    await triggerBackgroundFirestoreSync();
+  } catch (fsErr) {
+    console.warn('[Firestore] Batch sync warning:', fsErr);
+  }
   triggerBackgroundGSheetsSync();
   broadcastSSE('scores_batch_updated', { processedCount: processed.length });
 
@@ -629,7 +658,7 @@ app.post('/api/scores/batch', (req, res) => {
 });
 
 // Delete Score
-app.delete('/api/scores/:id', (req, res) => {
+app.delete('/api/scores/:id', async (req, res) => {
   const { id } = req.params;
   const idx = scoresData.findIndex((s) => s.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Nilai tidak ditemukan' });
@@ -653,8 +682,15 @@ app.delete('/api/scores/:id', (req, res) => {
   logsData.unshift(logItem);
 
   saveStorage();
-  deleteScoreFromFirestore(id);
-  saveLogToFirestore(logItem);
+  try {
+    await Promise.allSettled([
+      deleteScoreFromFirestore(id),
+      saveLogToFirestore(logItem),
+    ]);
+  } catch (fsErr) {
+    console.warn('[Firestore] Delete score warning:', fsErr);
+  }
+
   triggerBackgroundGSheetsSync();
   broadcastSSE('score_deleted', { id, deleted });
 
@@ -662,7 +698,7 @@ app.delete('/api/scores/:id', (req, res) => {
 });
 
 // Clear All Scores with password confirmation (alan_d19)
-app.post('/api/scores/clear-all', (req, res) => {
+app.post('/api/scores/clear-all', async (req, res) => {
   const { password } = req.body;
   if (password !== 'alan_d19') {
     return res.status(403).json({ error: 'Password konfirmasi salah! Hapus semua nilai dibatalkan.' });
@@ -688,8 +724,15 @@ app.post('/api/scores/clear-all', (req, res) => {
   logsData.unshift(logItem);
 
   saveStorage();
-  clearAllScoresInFirestore(deletedList);
-  saveLogToFirestore(logItem);
+  try {
+    await Promise.allSettled([
+      clearAllScoresInFirestore(deletedList),
+      saveLogToFirestore(logItem),
+    ]);
+  } catch (fsErr) {
+    console.warn('[Firestore] Clear all scores warning:', fsErr);
+  }
+
   triggerBackgroundGSheetsSync();
   broadcastSSE('scores_batch_updated', { type: 'CLEAR_ALL', timestamp: new Date().toISOString() });
 
@@ -697,7 +740,7 @@ app.post('/api/scores/clear-all', (req, res) => {
 });
 
 // Master Competition CRUD
-app.post('/api/competitions', (req, res) => {
+app.post('/api/competitions', async (req, res) => {
   const { name, minScore, maxScore, isExploration, hasTime } = req.body;
   if (!name) return res.status(400).json({ error: 'Nama perlombaan wajib diisi' });
 
@@ -724,12 +767,16 @@ app.post('/api/competitions', (req, res) => {
 
   competitionsData.push(newComp);
   saveStorage();
-  saveCompetitionToFirestore(newComp);
+  try {
+    await saveCompetitionToFirestore(newComp);
+  } catch (fsErr) {
+    console.warn('[Firestore] Save comp warning:', fsErr);
+  }
   broadcastSSE('competitions_updated', competitionsData);
   res.json({ success: true, competition: newComp });
 });
 
-app.put('/api/competitions/:id', (req, res) => {
+app.put('/api/competitions/:id', async (req, res) => {
   const { id } = req.params;
   const idx = competitionsData.findIndex((c) => c.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Perlombaan tidak ditemukan' });
@@ -740,22 +787,30 @@ app.put('/api/competitions/:id', (req, res) => {
   };
 
   saveStorage();
-  saveCompetitionToFirestore(competitionsData[idx]);
+  try {
+    await saveCompetitionToFirestore(competitionsData[idx]);
+  } catch (fsErr) {
+    console.warn('[Firestore] Update comp warning:', fsErr);
+  }
   broadcastSSE('competitions_updated', competitionsData);
   res.json({ success: true, competition: competitionsData[idx] });
 });
 
-app.delete('/api/competitions/:id', (req, res) => {
+app.delete('/api/competitions/:id', async (req, res) => {
   const { id } = req.params;
   competitionsData = competitionsData.filter((c) => c.id !== id);
   saveStorage();
-  deleteCompetitionFromFirestore(id);
+  try {
+    await deleteCompetitionFromFirestore(id);
+  } catch (fsErr) {
+    console.warn('[Firestore] Delete comp warning:', fsErr);
+  }
   broadcastSSE('competitions_updated', competitionsData);
   res.json({ success: true, id });
 });
 
 // Master School CRUD
-app.post('/api/schools', (req, res) => {
+app.post('/api/schools', async (req, res) => {
   const { name, code, hasPutra, hasPutri } = req.body;
   if (!name) return res.status(400).json({ error: 'Nama pangkalan wajib' });
 
@@ -770,34 +825,46 @@ app.post('/api/schools', (req, res) => {
 
   schoolsData.push(newSchool);
   saveStorage();
-  saveSchoolToFirestore(newSchool);
+  try {
+    await saveSchoolToFirestore(newSchool);
+  } catch (fsErr) {
+    console.warn('[Firestore] Save school warning:', fsErr);
+  }
   broadcastSSE('schools_updated', schoolsData);
   res.json({ success: true, school: newSchool });
 });
 
-app.put('/api/schools/:id', (req, res) => {
+app.put('/api/schools/:id', async (req, res) => {
   const id = Number(req.params.id);
   const idx = schoolsData.findIndex((s) => s.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Pangkalan tidak ditemukan' });
 
   schoolsData[idx] = { ...schoolsData[idx], ...req.body };
   saveStorage();
-  saveSchoolToFirestore(schoolsData[idx]);
+  try {
+    await saveSchoolToFirestore(schoolsData[idx]);
+  } catch (fsErr) {
+    console.warn('[Firestore] Update school warning:', fsErr);
+  }
   broadcastSSE('schools_updated', schoolsData);
   res.json({ success: true, school: schoolsData[idx] });
 });
 
-app.delete('/api/schools/:id', (req, res) => {
+app.delete('/api/schools/:id', async (req, res) => {
   const id = Number(req.params.id);
   schoolsData = schoolsData.filter((s) => s.id !== id);
   saveStorage();
-  deleteSchoolFromFirestore(id);
+  try {
+    await deleteSchoolFromFirestore(id);
+  } catch (fsErr) {
+    console.warn('[Firestore] Delete school warning:', fsErr);
+  }
   broadcastSSE('schools_updated', schoolsData);
   res.json({ success: true, id });
 });
 
 // Master Judges CRUD
-app.post('/api/judges', (req, res) => {
+app.post('/api/judges', async (req, res) => {
   const { username, password, name, role, assignedCompetitionId, assignedSubPostId, assignedCategory } = req.body;
   if (!username || !name) return res.status(400).json({ error: 'Username dan Nama wajib' });
 
@@ -815,19 +882,23 @@ app.post('/api/judges', (req, res) => {
 
   judgesData.push(newJudge);
   saveStorage();
-  saveJudgeToFirestore(newJudge);
+  try {
+    await saveJudgeToFirestore(newJudge);
+  } catch (fsErr) {
+    console.warn('[Firestore] Save judge warning:', fsErr);
+  }
   broadcastSSE('judges_updated', judgesData);
   res.json({ success: true, judge: newJudge });
 });
 
-app.post('/api/judges/batch', (req, res) => {
+app.post('/api/judges/batch', async (req, res) => {
   const { batchJudges } = req.body;
   if (!Array.isArray(batchJudges) || batchJudges.length === 0) {
     return res.status(400).json({ error: 'Data batch juri tidak valid atau kosong' });
   }
 
   let addedCount = 0;
-  batchJudges.forEach((item) => {
+  for (const item of batchJudges) {
     if (item.username && item.name) {
       // Check if judge with same username exists
       const existingIdx = judgesData.findIndex(
@@ -851,56 +922,76 @@ app.post('/api/judges/batch', (req, res) => {
       } else {
         judgesData.push(judgeObj);
       }
-      saveJudgeToFirestore(judgeObj);
+      try {
+        await saveJudgeToFirestore(judgeObj);
+      } catch (fsErr) {
+        console.warn('[Firestore] Batch save judge warning:', fsErr);
+      }
       addedCount++;
     }
-  });
+  }
 
   saveStorage();
   broadcastSSE('judges_updated', judgesData);
   res.json({ success: true, count: addedCount, judges: judgesData });
 });
 
-app.put('/api/judges/:id', (req, res) => {
+app.put('/api/judges/:id', async (req, res) => {
   const { id } = req.params;
   const idx = judgesData.findIndex((j) => j && j.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Juri tidak ditemukan' });
 
   judgesData[idx] = { ...judgesData[idx], ...req.body };
   saveStorage();
-  saveJudgeToFirestore(judgesData[idx]);
+  try {
+    await saveJudgeToFirestore(judgesData[idx]);
+  } catch (fsErr) {
+    console.warn('[Firestore] Update judge warning:', fsErr);
+  }
   broadcastSSE('judges_updated', judgesData);
   res.json({ success: true, judge: judgesData[idx] });
 });
 
-app.delete('/api/judges-all-non-admin', (req, res) => {
+app.delete('/api/judges-all-non-admin', async (req, res) => {
   const initialCount = judgesData.length;
   const toDelete = judgesData.filter((j) => j && j.username !== 'admin');
   judgesData = judgesData.filter((j) => j && j.username === 'admin');
   saveStorage();
   for (const j of toDelete) {
-    deleteJudgeFromFirestore(j.id);
+    try {
+      await deleteJudgeFromFirestore(j.id);
+    } catch (fsErr) {
+      console.warn('[Firestore] Delete non-admin judge warning:', fsErr);
+    }
   }
   broadcastSSE('judges_updated', judgesData);
   const deletedCount = initialCount - judgesData.length;
   res.json({ success: true, deletedCount });
 });
 
-app.delete('/api/judges/:id', (req, res) => {
+app.delete('/api/judges/:id', async (req, res) => {
   const { id } = req.params;
   const initialCount = judgesData.length;
   judgesData = judgesData.filter((j) => String(j.id) !== String(id));
   saveStorage();
-  deleteJudgeFromFirestore(id);
+  try {
+    await deleteJudgeFromFirestore(id);
+  } catch (fsErr) {
+    console.warn('[Firestore] Delete judge warning:', fsErr);
+  }
   broadcastSSE('judges_updated', judgesData);
   res.json({ success: true, id, deleted: initialCount > judgesData.length });
 });
 
 // App Settings Update
-app.post('/api/settings', (req, res) => {
+app.post('/api/settings', async (req, res) => {
   settingsData = { ...settingsData, ...req.body };
   saveStorage();
-  saveSettingsToFirestore(settingsData);
+  try {
+    await saveSettingsToFirestore(settingsData);
+  } catch (fsErr) {
+    console.warn('[Firestore] Save settings warning:', fsErr);
+  }
   broadcastSSE('settings_updated', settingsData);
   res.json({ success: true, settings: settingsData });
 });

@@ -12,17 +12,27 @@ export interface FirebaseConfig {
   messagingSenderId?: string;
 }
 
-export function getFirebaseConfig(): FirebaseConfig | null {
+const DEFAULT_FIREBASE_CONFIG: FirebaseConfig = {
+  projectId: 'gold-adviser-kpt51',
+  appId: '1:503691970585:web:b3946133948c2d07b10288',
+  apiKey: 'AIzaSyBNjYjuVho4ZkGFdU4YPh7N_Uyt_zD0KrU',
+  authDomain: 'gold-adviser-kpt51.firebaseapp.com',
+  firestoreDatabaseId: 'ai-studio-remixsistempenil-eedf6b83-f589-421a-8a2f-7c661c4ea0be',
+  storageBucket: 'gold-adviser-kpt51.firebasestorage.app',
+  messagingSenderId: '503691970585',
+};
+
+export function getFirebaseConfig(): FirebaseConfig {
   // 1. Check environment variables (e.g. Vercel deployment)
   if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_API_KEY) {
     return {
       projectId: process.env.FIREBASE_PROJECT_ID,
       apiKey: process.env.FIREBASE_API_KEY,
-      appId: process.env.FIREBASE_APP_ID || '',
+      appId: process.env.FIREBASE_APP_ID || DEFAULT_FIREBASE_CONFIG.appId,
       authDomain: process.env.FIREBASE_AUTH_DOMAIN || `${process.env.FIREBASE_PROJECT_ID}.firebaseapp.com`,
-      firestoreDatabaseId: process.env.FIREBASE_DATABASE_ID || '(default)',
+      firestoreDatabaseId: process.env.FIREBASE_DATABASE_ID || DEFAULT_FIREBASE_CONFIG.firestoreDatabaseId,
       storageBucket: process.env.FIREBASE_STORAGE_BUCKET || `${process.env.FIREBASE_PROJECT_ID}.firebasestorage.app`,
-      messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || '',
+      messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || DEFAULT_FIREBASE_CONFIG.messagingSenderId,
     };
   }
 
@@ -31,12 +41,20 @@ export function getFirebaseConfig(): FirebaseConfig | null {
     const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
     if (fs.existsSync(configPath)) {
       const raw = fs.readFileSync(configPath, 'utf-8');
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.projectId && parsed.apiKey) {
+        return {
+          ...DEFAULT_FIREBASE_CONFIG,
+          ...parsed,
+        };
+      }
     }
   } catch (err) {
     console.warn('[Firestore] Failed to read firebase-applet-config.json:', err);
   }
-  return null;
+
+  // 3. Fallback to embedded default Firebase configuration
+  return DEFAULT_FIREBASE_CONFIG;
 }
 
 // Convert JavaScript objects into Firestore REST document fields
