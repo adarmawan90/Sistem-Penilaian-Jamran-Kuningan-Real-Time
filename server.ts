@@ -28,6 +28,14 @@ const PORT = 3000;
 
 app.use(express.json({ limit: '10mb' }));
 
+// URL Normalization Middleware for Vercel Serverless Function compatibility
+app.use((req, res, next) => {
+  if (req.url && !req.url.startsWith('/api') && !req.url.startsWith('/assets') && !req.url.startsWith('/dist') && !req.url.includes('.')) {
+    req.url = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
+  }
+  next();
+});
+
 // File persistence path (supports both local/container and Vercel serverless /tmp)
 const DATA_FILE = process.env.VERCEL
   ? path.join(os.tmpdir(), 'data_storage.json')

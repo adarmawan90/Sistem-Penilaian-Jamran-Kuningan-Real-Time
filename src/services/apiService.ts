@@ -1,4 +1,5 @@
 import { School, Competition, Judge, ScoreRecord, ActivityLog, AppSettings, TeamCategory } from '../types';
+import { INITIAL_SCHOOLS, INITIAL_COMPETITIONS, INITIAL_JUDGES, INITIAL_SETTINGS } from '../data/seedData';
 
 const OFFLINE_KEY = 'pramuka_offline_scores_queue';
 
@@ -6,11 +7,23 @@ export class ApiService {
   static async getInitialData() {
     try {
       const res = await fetch('/api/initial-data');
-      if (!res.ok) throw new Error('Failed to fetch initial data');
+      if (!res.ok) throw new Error(`Failed to fetch initial data: HTTP ${res.status}`);
       const data = await res.json();
 
+      if (!Array.isArray(data.schools) || data.schools.length === 0) {
+        data.schools = INITIAL_SCHOOLS;
+      }
+      if (!Array.isArray(data.competitions) || data.competitions.length === 0) {
+        data.competitions = INITIAL_COMPETITIONS;
+      }
+      if (!Array.isArray(data.judges) || data.judges.length === 0) {
+        data.judges = INITIAL_JUDGES;
+      }
       if (!Array.isArray(data.scores)) {
         data.scores = [];
+      }
+      if (!data.settings || !data.settings.eventTitle) {
+        data.settings = INITIAL_SETTINGS;
       }
 
       // Save authoritative state from server to local persistent storage
@@ -19,21 +32,31 @@ export class ApiService {
 
       return data;
     } catch (err) {
-      console.warn('Network fetch initial data failed, using local persistent cache:', err);
+      console.warn('Network fetch initial data failed, using local persistent cache and defaults:', err);
       const cached = localStorage.getItem('pramuka_initial_cache');
       if (cached) {
         try {
-          return JSON.parse(cached);
+          const parsed = JSON.parse(cached);
+          if (parsed && Array.isArray(parsed.schools) && parsed.schools.length > 0) {
+            return parsed;
+          }
         } catch {}
       }
       const backupRaw = localStorage.getItem('pramuka_scores_backup');
+      let backupScores: ScoreRecord[] = [];
       if (backupRaw) {
         try {
-          const backupScores = JSON.parse(backupRaw);
-          return { schools: [], competitions: [], judges: [], scores: backupScores || [], settings: {}, logs: [] };
+          backupScores = JSON.parse(backupRaw) || [];
         } catch {}
       }
-      return { schools: [], competitions: [], judges: [], scores: [], settings: {}, logs: [] };
+      return {
+        schools: INITIAL_SCHOOLS,
+        competitions: INITIAL_COMPETITIONS,
+        judges: INITIAL_JUDGES,
+        scores: backupScores,
+        settings: INITIAL_SETTINGS,
+        logs: []
+      };
     }
   }
 

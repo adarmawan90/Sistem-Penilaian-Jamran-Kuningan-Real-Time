@@ -197,12 +197,12 @@ export default function App() {
     // 2. Fetch fresh data from server and merge
     try {
       const data = await ApiService.getInitialData();
-      if (data.schools) setSchools(data.schools);
-      if (data.competitions) setCompetitions(data.competitions);
-      if (data.judges) setJudges(data.judges);
-      if (data.scores) setScores(data.scores);
-      if (data.logs) setLogs(data.logs);
-      if (data.settings) setSettings(data.settings);
+      if (data.schools && data.schools.length > 0) setSchools(data.schools);
+      if (data.competitions && data.competitions.length > 0) setCompetitions(data.competitions);
+      if (data.judges && data.judges.length > 0) setJudges(data.judges);
+      if (Array.isArray(data.scores)) setScores(data.scores);
+      if (Array.isArray(data.logs)) setLogs(data.logs);
+      if (data.settings && data.settings.eventTitle) setSettings(data.settings);
     } catch (err) {
       console.error('Failed to load initial data:', err);
     } finally {
@@ -293,9 +293,26 @@ export default function App() {
       }
     });
 
+    // Lightweight periodic refresh for serverless environments (Vercel)
+    const intervalTimer = setInterval(() => {
+      if (navigator.onLine && document.visibilityState === 'visible') {
+        ApiService.getInitialData().then((freshData) => {
+          if (freshData) {
+            if (freshData.schools && freshData.schools.length > 0) setSchools(freshData.schools);
+            if (freshData.competitions && freshData.competitions.length > 0) setCompetitions(freshData.competitions);
+            if (freshData.judges && freshData.judges.length > 0) setJudges(freshData.judges);
+            if (Array.isArray(freshData.scores)) setScores(freshData.scores);
+            if (Array.isArray(freshData.logs)) setLogs(freshData.logs);
+            if (freshData.settings && freshData.settings.eventTitle) setSettings(freshData.settings);
+          }
+        }).catch(() => {});
+      }
+    }, 8000);
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      clearInterval(intervalTimer);
       unsubscribeSSE();
     };
   }, [loadInitialData, handleSyncOfflineData, updateOfflineCount]);
