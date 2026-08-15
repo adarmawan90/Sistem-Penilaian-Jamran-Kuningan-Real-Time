@@ -14,13 +14,13 @@ async function safeFetch(url: string, options?: RequestInit): Promise<any> {
     try {
       data = text ? JSON.parse(text) : {};
     } catch {
-      data = { error: 'Server offline / Cold start' };
+      data = {};
     }
 
     if (!res.ok) {
-      let errorMsg = data?.error || data?.message || `Server status ${res.status}`;
-      if (typeof errorMsg === 'string' && (errorMsg.includes('server error') || errorMsg.includes('Unexpected token') || errorMsg.includes('valid JSON'))) {
-        errorMsg = 'Layanan server sedang offline. Aplikasi berjalan dalam mode lokal.';
+      let errorMsg = data?.error || data?.message || `Status ${res.status}`;
+      if (typeof errorMsg === 'string' && (errorMsg.includes('server error') || errorMsg.includes('Unexpected token') || errorMsg.includes('valid JSON') || errorMsg.includes('Cold start') || errorMsg.includes('Server offline'))) {
+        errorMsg = 'Koneksi ke server mengalami kendala. Menggunakan data cadangan.';
       }
       throw new Error(errorMsg);
     }
@@ -28,8 +28,8 @@ async function safeFetch(url: string, options?: RequestInit): Promise<any> {
     return data;
   } catch (err: any) {
     let msg = err?.message || 'Koneksi server gagal';
-    if (typeof msg === 'string' && (msg.includes('Unexpected token') || msg.includes('valid JSON') || msg.includes('server error'))) {
-      msg = 'Koneksi server tidak tersedia. Menggunakan data lokal.';
+    if (typeof msg === 'string' && (msg.includes('Unexpected token') || msg.includes('valid JSON') || msg.includes('server error') || msg.includes('Cold start') || msg.includes('Server offline'))) {
+      msg = 'Koneksi ke server tidak stabil. Menggunakan penyimpanan data lokal.';
     }
     throw new Error(msg);
   }

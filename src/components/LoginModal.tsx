@@ -55,8 +55,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       }
     } catch (err: any) {
       let msg = err.message || 'Login gagal. Periksa username dan password Anda.';
-      if (typeof msg === 'string' && (msg.includes('Unexpected token') || msg.includes('valid JSON') || msg.includes('server error'))) {
-        msg = 'Koneksi server offline. Silakan coba masuk dengan akun default (admin / admin123).';
+      if (typeof msg === 'string' && (msg.includes('Unexpected token') || msg.includes('valid JSON') || msg.includes('server error') || msg.includes('Cold start') || msg.includes('Server offline'))) {
+        msg = 'Koneksi server terputus. Silakan periksa kembali akun Anda.';
       }
       setErrorMsg(msg);
     } finally {
@@ -67,7 +67,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const handleSelectQuickJudge = (j?: Judge | null) => {
     if (!j || !j.username) return;
     setUsernameInput(j.username);
-    setPasswordInput(j.password || (j.role === 'ADMIN' ? 'admin123' : 'juri123'));
+    setPasswordInput('');
     setErrorMsg('');
     setTimeout(() => {
       passwordInputRef.current?.focus();
@@ -174,9 +174,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               <label className="text-[11px] font-bold text-slate-600">
                 Password
               </label>
-              <span className="text-[10px] text-blue-600 font-semibold">
-                (Admin: <b>admin123</b> | Juri: <b>juri123</b>)
-              </span>
             </div>
             <div className="relative">
               <Lock className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
