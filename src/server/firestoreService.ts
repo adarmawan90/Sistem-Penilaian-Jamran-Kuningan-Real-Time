@@ -184,8 +184,25 @@ export async function clearAllScoresInFirestore(scores: ScoreRecord[]) {
   const dbPath = getDatabasePath(config);
   const commitUrl = `https://firestore.googleapis.com/v1/${dbPath}/documents:commit?key=${config.apiKey}`;
 
-  const writes = scores.map((s) => ({
-    delete: `${dbPath}/documents/scores/${s.id}`,
+  // Gather doc IDs from both local array and remote collection to ensure no orphan score documents
+  const allDocIds = new Set<string>();
+  if (Array.isArray(scores)) {
+    scores.forEach((s) => s && s.id && allDocIds.add(String(s.id)));
+  }
+
+  try {
+    const remoteScores = await fetchCollectionFromFirestore('scores');
+    if (Array.isArray(remoteScores)) {
+      remoteScores.forEach((s) => s && s.id && allDocIds.add(String(s.id)));
+    }
+  } catch (err) {
+    console.warn('[Firestore] Error reading remote scores during clear:', err);
+  }
+
+  if (allDocIds.size === 0) return;
+
+  const writes = Array.from(allDocIds).map((id) => ({
+    delete: `${dbPath}/documents/scores/${encodeURIComponent(String(id).replace(/\//g, '_'))}`,
   }));
 
   const chunkSize = 200;
@@ -200,6 +217,24 @@ export async function clearAllScoresInFirestore(scores: ScoreRecord[]) {
     } catch (e) {
       console.warn('[Firestore] Batch score deletion chunk failed:', e);
     }
+  }
+}
+
+export async function deleteAllNonAdminJudgesInFirestore() {
+  const config = getFirebaseConfig();
+  if (!config || !config.projectId || !config.apiKey) return;
+
+  try {
+    const remoteJudges = await fetchCollectionFromFirestore('judges');
+    if (Array.isArray(remoteJudges)) {
+      for (const j of remoteJudges) {
+        if (j && j.username !== 'admin') {
+          await deleteJudgeFromFirestore(j.id);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Firestore] Error deleting non-admin judges in Firestore:', err);
   }
 }
 
@@ -362,30 +397,44 @@ export async function syncAllToFirestore(data: {
   };
 }
 
-// 4. Fetch collection documents from Firestore via REST
+// 4. Fetch collection documents from Firestore via REST runQuery
 async function fetchCollectionFromFirestore(collectionName: string): Promise<any[]> {
   const config = getFirebaseConfig();
   if (!config || !config.projectId || !config.apiKey) return [];
 
-  const url = `${getBaseUrl(config)}/${collectionName}?key=${config.apiKey}&pageSize=1000`;
+  const dbPath = getDatabasePath(config);
+  const url = `https://firestore.googleapis.com/v1/${dbPath}/documents:runQuery?key=${config.apiKey}`;
   try {
-    const resp = await fetch(url);
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        structuredQuery: {
+          from: [{ collectionId: collectionName }],
+          limit: 1000,
+        },
+      }),
+    });
     if (!resp.ok) {
       return [];
     }
     const data: any = await resp.json();
-    if (!data.documents || !Array.isArray(data.documents)) {
+    if (!Array.isArray(data)) {
       return [];
     }
 
-    return data.documents.map((docItem: any) => {
-      const rawFields = docItem.fields || {};
-      const obj: Record<string, any> = {};
-      for (const [key, val] of Object.entries(rawFields)) {
-        obj[key] = fromFirestoreValue(val);
+    const items: any[] = [];
+    for (const item of data) {
+      if (item.document && item.document.fields) {
+        const rawFields = item.document.fields;
+        const obj: Record<string, any> = {};
+        for (const [key, val] of Object.entries(rawFields)) {
+          obj[key] = fromFirestoreValue(val);
+        }
+        items.push(obj);
       }
-      return obj;
-    });
+    }
+    return items;
   } catch (err: any) {
     console.warn(`[Firestore] Error fetching collection ${collectionName}:`, err?.message || err);
     return [];
@@ -418,13 +467,13 @@ export async function fetchAllFromFirestore(): Promise<{
     if (schools.length > 0) result.schools = schools;
     if (comps.length > 0) result.competitions = comps;
     if (judges.length > 0) result.judges = judges;
-    if (scores.length > 0) result.scores = scores;
-    if (logs.length > 0) result.logs = logs;
+    result.scores = scores;
+    result.logs = logs;
     if (settingsList.length > 0) {
       result.settings = settingsList.find((s) => s.id === 'app_settings') || settingsList[0];
     }
 
-    const hasData = Object.keys(result).length > 0;
+    const hasData = (schools.length > 0 || comps.length > 0 || judges.length > 0 || scores.length > 0 || settingsList.length > 0);
     return hasData ? result : null;
   } catch (err: any) {
     console.warn('[Firestore] fetchAllFromFirestore error:', err?.message || err);

@@ -18,6 +18,7 @@ import {
   deleteCompetitionFromFirestore,
   saveJudgeToFirestore,
   deleteJudgeFromFirestore,
+  deleteAllNonAdminJudgesInFirestore,
   clearAllScoresInFirestore,
   fetchAllFromFirestore,
 } from './src/server/firestoreService';
@@ -957,12 +958,13 @@ app.delete('/api/judges-all-non-admin', async (req, res) => {
   const toDelete = judgesData.filter((j) => j && j.username !== 'admin');
   judgesData = judgesData.filter((j) => j && j.username === 'admin');
   saveStorage();
-  for (const j of toDelete) {
-    try {
+  try {
+    await deleteAllNonAdminJudgesInFirestore();
+    for (const j of toDelete) {
       await deleteJudgeFromFirestore(j.id);
-    } catch (fsErr) {
-      console.warn('[Firestore] Delete non-admin judge warning:', fsErr);
     }
+  } catch (fsErr) {
+    console.warn('[Firestore] Delete non-admin judge warning:', fsErr);
   }
   broadcastSSE('judges_updated', judgesData);
   const deletedCount = initialCount - judgesData.length;
@@ -971,16 +973,20 @@ app.delete('/api/judges-all-non-admin', async (req, res) => {
 
 app.delete('/api/judges/:id', async (req, res) => {
   const { id } = req.params;
+  const decodedId = decodeURIComponent(id);
   const initialCount = judgesData.length;
-  judgesData = judgesData.filter((j) => String(j.id) !== String(id));
+  judgesData = judgesData.filter((j) => String(j.id) !== String(id) && String(j.id) !== String(decodedId));
   saveStorage();
   try {
-    await deleteJudgeFromFirestore(id);
+    await deleteJudgeFromFirestore(decodedId);
+    if (decodedId !== id) {
+      await deleteJudgeFromFirestore(id);
+    }
   } catch (fsErr) {
     console.warn('[Firestore] Delete judge warning:', fsErr);
   }
   broadcastSSE('judges_updated', judgesData);
-  res.json({ success: true, id, deleted: initialCount > judgesData.length });
+  res.json({ success: true, id: decodedId, deleted: initialCount > judgesData.length });
 });
 
 // App Settings Update

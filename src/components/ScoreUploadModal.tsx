@@ -292,23 +292,67 @@ export const ScoreUploadModal: React.FC<ScoreUploadModalProps> = ({
       // Parse each row from rawJson
       rawJson.forEach((row) => {
         // Retrieve ID Pangkalan & School Name
-        const schoolIdRaw = row['ID Pangkalan'] ?? row['ID'] ?? row['id_pangkalan'] ?? row['Id Pangkalan'];
+        const schoolIdRaw =
+          row['ID Pangkalan'] ??
+          row['ID'] ??
+          row['id_pangkalan'] ??
+          row['Id Pangkalan'] ??
+          row['No'] ??
+          row['No.'] ??
+          row['Nomor'] ??
+          row['Nomor Pangkalan'];
         const schoolId = Number(schoolIdRaw);
 
-        let schoolNameObj = schools.find((s) => s.id === schoolId);
-        if (!schoolNameObj && row['Nama Pangkalan']) {
-          const nameSearch = String(row['Nama Pangkalan']).toLowerCase().trim();
-          schoolNameObj = schools.find((s) => s.name.toLowerCase().trim() === nameSearch);
+        let schoolNameObj = !isNaN(schoolId) && schoolId > 0 ? schools.find((s) => s.id === schoolId) : undefined;
+        
+        const rawSchoolName = String(
+          row['Nama Pangkalan'] ??
+          row['Pangkalan'] ??
+          row['Sekolah'] ??
+          row['Nama Sekolah'] ??
+          row['Gudep'] ??
+          ''
+        ).toLowerCase().trim();
+
+        if (!schoolNameObj && rawSchoolName) {
+          schoolNameObj = schools.find(
+            (s) =>
+              s.name.toLowerCase().trim() === rawSchoolName ||
+              s.name.toLowerCase().includes(rawSchoolName) ||
+              rawSchoolName.includes(s.name.toLowerCase())
+          );
         }
 
-        const schoolName = schoolNameObj ? schoolNameObj.name : (row['Nama Pangkalan'] || `ID #${schoolIdRaw}`);
+        const schoolName = schoolNameObj ? schoolNameObj.name : (row['Nama Pangkalan'] || row['Sekolah'] || `ID #${schoolIdRaw}`);
 
         // Category Regu
-        const rawCat = String(row['Kategori Regu'] || row['Kategori'] || row['kategori'] || '').toUpperCase().trim();
+        const rawCat = String(
+          row['Kategori Regu'] ||
+          row['Kategori'] ||
+          row['kategori'] ||
+          row['Regu'] ||
+          row['Jenis Regu'] ||
+          ''
+        ).toUpperCase().trim();
+
         let teamCategory: TeamCategory;
-        if (rawCat === 'PUTRI' || rawCat === 'PI') {
+        if (
+          rawCat === 'PUTRI' ||
+          rawCat === 'PI' ||
+          rawCat === 'P' ||
+          rawCat === 'PUTERI' ||
+          rawCat.includes('PUTRI') ||
+          rawCat.includes('PEREMPUAN')
+        ) {
           teamCategory = 'PUTRI';
-        } else if (rawCat === 'PUTRA' || rawCat === 'PA') {
+        } else if (
+          rawCat === 'PUTRA' ||
+          rawCat === 'PA' ||
+          rawCat === 'L' ||
+          rawCat === 'PUTERA' ||
+          rawCat.includes('PUTRA') ||
+          rawCat.includes('LAKI')
+        ) {
           teamCategory = 'PUTRA';
         } else {
           teamCategory = selectedRegu !== 'ALL' ? selectedRegu : 'PUTRA';
@@ -316,52 +360,62 @@ export const ScoreUploadModal: React.FC<ScoreUploadModalProps> = ({
 
         // Determine which pos columns to look for
         flatPosList.forEach((pos) => {
+          // Normalize names for comparison
+          const cleanHeader = pos.headerName.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+          const cleanPos = pos.posName.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+          const cleanSub = pos.subPostId ? pos.posName.toLowerCase().replace(/.*?\((.*?)\)/, '$1').trim().replace(/[^a-z0-9]/g, '') : '';
+
           // Find matching Score key
           let valKey = Object.keys(row).find((k) => {
-            const cleanK = k.toLowerCase().trim();
-            const cleanHeader = pos.headerName.toLowerCase().trim();
-            const cleanPos = pos.posName.toLowerCase().trim();
+            const rawK = k.toLowerCase().trim();
+            const normK = rawK.replace(/[^a-z0-9]/g, '');
+            if (rawK.includes('waktu') || rawK.includes('time') || rawK.includes('durasi')) return false;
+
             return (
-              cleanK === `${cleanHeader} (nilai)` ||
-              cleanK === `${cleanHeader} - nilai` ||
-              cleanK === `nilai: ${cleanHeader}` ||
-              cleanK === cleanHeader ||
-              cleanK === cleanPos
+              normK === `${cleanHeader}nilai` ||
+              normK === `nilai${cleanHeader}` ||
+              normK === cleanHeader ||
+              normK === `${cleanPos}nilai` ||
+              normK === `nilai${cleanPos}` ||
+              normK === cleanPos ||
+              (cleanSub && (normK === `${cleanSub}nilai` || normK === cleanSub))
             );
           });
 
           // Fallback for Score key if specific Pos or single pos selected
           if (!valKey) {
             valKey = Object.keys(row).find((k) => {
-              const cleanK = k.toLowerCase().trim();
+              const rawK = k.toLowerCase().trim();
+              if (rawK.includes('waktu') || rawK.includes('time') || rawK.includes('durasi')) return false;
               if (selectedPosHeader !== 'ALL' && pos.headerName === selectedPosHeader) {
-                return cleanK === 'nilai' || cleanK === 'score' || cleanK === 'nilai pos' || cleanK === 'skor';
+                return rawK === 'nilai' || rawK === 'score' || rawK === 'nilai pos' || rawK === 'skor' || rawK.includes('nilai');
               }
-              return cleanK.includes(pos.competitionId.toLowerCase()) && !cleanK.includes('waktu');
+              return (
+                rawK.includes(pos.competitionId.toLowerCase()) ||
+                pos.headerName.toLowerCase().includes(rawK) ||
+                (rawK.includes('nilai') && rawK.includes(pos.headerName.toLowerCase().slice(0, 5)))
+              );
             });
           }
 
           // Find matching Time key
           let timeKey = Object.keys(row).find((k) => {
-            const cleanK = k.toLowerCase().trim();
-            const cleanHeader = pos.headerName.toLowerCase().trim();
-            const cleanPos = pos.posName.toLowerCase().trim();
+            const rawK = k.toLowerCase().trim();
+            const normK = rawK.replace(/[^a-z0-9]/g, '');
             return (
-              cleanK === `${cleanHeader} (waktu)` ||
-              cleanK === `${cleanHeader} - waktu` ||
-              cleanK === `waktu: ${cleanHeader}` ||
-              cleanK === `waktu ${cleanHeader}`
+              (rawK.includes('waktu') || rawK.includes('time') || rawK.includes('stopwatch')) &&
+              (normK.includes(cleanHeader) || normK.includes(cleanPos) || (cleanSub && normK.includes(cleanSub)))
             );
           });
 
           // Fallback for Time key
           if (!timeKey) {
             timeKey = Object.keys(row).find((k) => {
-              const cleanK = k.toLowerCase().trim();
+              const rawK = k.toLowerCase().trim();
               if (selectedPosHeader !== 'ALL' && pos.headerName === selectedPosHeader) {
-                return cleanK.includes('waktu') || cleanK === 'time' || cleanK === 'waktu tempuh';
+                return rawK.includes('waktu') || rawK === 'time' || rawK === 'waktu tempuh' || rawK.includes('menit');
               }
-              return cleanK.includes(pos.competitionId.toLowerCase()) && cleanK.includes('waktu');
+              return rawK.includes(pos.competitionId.toLowerCase()) && (rawK.includes('waktu') || rawK.includes('time'));
             });
           }
 
@@ -374,7 +428,7 @@ export const ScoreUploadModal: React.FC<ScoreUploadModalProps> = ({
 
               if (!schoolNameObj) {
                 isValid = false;
-                errMsg = `ID Pangkalan #${schoolIdRaw} tidak ditemukan di database`;
+                errMsg = `ID/Nama Pangkalan "${schoolName}" tidak ditemukan di master data`;
               } else if (rawScoreVal < pos.minScore || rawScoreVal > pos.maxScore) {
                 isValid = false;
                 errMsg = `Nilai ${rawScoreVal} di luar rentang (${pos.minScore} - ${pos.maxScore})`;
@@ -385,7 +439,7 @@ export const ScoreUploadModal: React.FC<ScoreUploadModalProps> = ({
               const { timeInMs, timeFormatted } = parseTimeToMsAndFormatted(rawTimeVal);
 
               results.push({
-                schoolId: schoolNameObj ? schoolNameObj.id : schoolId,
+                schoolId: schoolNameObj ? schoolNameObj.id : (isNaN(schoolId) ? 0 : schoolId),
                 schoolName,
                 teamCategory,
                 competitionId: pos.competitionId,

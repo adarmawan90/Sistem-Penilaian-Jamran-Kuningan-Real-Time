@@ -46,8 +46,10 @@ export class ApiService {
       if (!Array.isArray(data.competitions) || data.competitions.length === 0) {
         data.competitions = INITIAL_COMPETITIONS;
       }
-      if (!Array.isArray(data.judges) || data.judges.length === 0) {
+      if (!Array.isArray(data.judges)) {
         data.judges = INITIAL_JUDGES;
+      } else if (data.judges.length === 0) {
+        data.judges = [INITIAL_JUDGES[0]]; // Always keep at least the admin user
       }
       if (!Array.isArray(data.scores)) {
         data.scores = [];
